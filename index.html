@@ -2,28 +2,189 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Microtonal Pitch Trainer</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { margin:0; font-family:sans-serif; background:#111; color:#eee; display:flex; flex-direction:column; align-items:center; padding:20px; }
+    header { text-align:center; margin-bottom:10px; }
+    #controls, #needle-container, #editor, #practice { width:100%; max-width:500px; margin-bottom:20px; }
+    input, button, textarea, select { width:100%; margin:5px 0; padding:10px; font-size:1rem; background:#222; color:#eee; border:1px solid #444; }
+    button { cursor:pointer; }
+    canvas { width:100%; height:150px; background:#222; border:1px solid #444; }
+    @media (min-width:600px){ canvas{height:200px;} }
+  </style>
 </head>
 <body>
-  <h1>Microtonal Pitch Trainer</h1>
+  <header><h1>Microtonal Trainer</h1></header>
 
-  <div>
-    <label>Base Frequency (Hz):
-      <input type="number" id="baseFreq" value="440">
+  <div id="controls">
+    <label>Upload .scl file:
+      <input type="file" id="uploadScl" accept=".scl">
     </label>
-    <label>EDO:
-      <input type="number" id="edo" value="12" min="1" max="80">
+    <label>Or define scale (cents, comma-separated):
+      <textarea id="sclEditor" rows="3">0,100,200,300,400,500,600,700,800,900,1000,1100</textarea>
     </label>
-    <button onclick="playRandomNote()">Play Note</button>
+    <button id="loadScale">Load Scale</button>
+    <select id="scaleSelect"></select>
+    <button id="playRandom">Play Random Note</button>
+    <button id="startMic">Start Microphone</button>
+    <button id="startPractice">Start Practice Mode</button>
   </div>
 
-  <div id="noteInfo"></div>
+  <div id="needle-container">
+    <canvas id="needle"></canvas>
+    <div id="pitchInfo">Pitch: – Hz | Cents Off: –</div>
+  </div>
 
-  <button onclick="startListening()">Start Mic</button>
-  <div id="pitchOutput">Pitch: -- Hz<br>Cents Off: --</div>
+  <div id="practice" style="display:none">
+    <h3>Practice Mode</h3>
+    <div id="practiceInfo">–</div>
+    <button id="stopPractice">Stop Practice</button>
+  </div>
 
-  <script src="script.js"></script>
+  <script>
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let osc, targetFreq = 440, scl = [0,100,200,300,400,500,600,700,800,900,1000,1100];
+const scaleNames = {}, history = [];
+
+const needleCanvas = document.getElementById('needle');
+const needleCtx = needleCanvas.getContext('2d');
+function drawNeedle(cents) {
+  const w = needleCanvas.width = needleCanvas.clientWidth;
+  const h = needleCanvas.height = needleCanvas.clientHeight;
+  needleCtx.clearRect(0,0,w,h);
+  needleCtx.strokeStyle = '#666';
+  needleCtx.beginPath();
+  needleCtx.moveTo(w/2, h*0.1);
+  needleCtx.lineTo(w/2, h*0.9);
+  needleCtx.stroke();
+
+  const max = 100;
+  const angle = (cents/max)*Math.PI*0.4;
+  needleCtx.strokeStyle = Math.abs(cents)<5? '#0f0' : '#f00';
+  needleCtx.lineWidth = 3;
+  needleCtx.beginPath();
+  needleCtx.translate(w/2,h*0.9);
+  needleCtx.rotate(-Math.PI/2 + angle);
+  needleCtx.moveTo(0,0);
+  needleCtx.lineTo(h*0.4,0);
+  needleCtx.stroke();
+  needleCtx.resetTransform();
+}
+
+function playNote() {
+  const step = Math.floor(Math.random()*scl.length);
+  const cents = scl[step];
+  targetFreq = 440 * Math.pow(2, cents/1200);
+  if (osc) osc.stop();
+  osc = audioCtx.createOscillator();
+  osc.frequency.value = targetFreq;
+  osc.connect(audioCtx.destination);
+  osc.start();
+  osc.stop(audioCtx.currentTime + 1);
+}
+
+async function startMic() {
+  await audioCtx.resume();
+  const mic = await navigator.mediaDevices.getUserMedia({audio:true});
+  const src = audioCtx.createMediaStreamSource(mic);
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 2048;
+  const buf = new Float32Array(analyser.fftSize);
+  src.connect(analyser);
+  function detect(){
+    analyser.getFloatTimeDomainData(buf);
+    const pitch = getPitch(buf);
+    if(pitch){
+      const cents = 1200*Math.log2(pitch/targetFreq);
+      drawNeedle(cents);
+      document.getElementById('pitchInfo').innerText = `Pitch: ${pitch.toFixed(2)} Hz | Cents Off: ${cents.toFixed(2)}`;
+    }
+    requestAnimationFrame(detect);
+  }
+  detect();
+}
+
+function getPitch(buf) {
+  let rms=0, bestOffset=-1, bestCorr=0;
+  const sr = audioCtx.sampleRate;
+  for(let i=0;i<buf.length;i++) rms+=buf[i]*buf[i];
+  if(Math.sqrt(rms/buf.length)<0.01) return null;
+  for(let o=20;o<1000;o++){
+    let corr=0;
+    for(let i=0;i<buf.length-o;i++){
+      corr += buf[i]*buf[i+o];
+    }
+    corr /= (buf.length-o);
+    if(corr>bestCorr){bestCorr=corr; bestOffset=o;}
+  }
+  return bestCorr>0.9? sr/bestOffset : null;
+}
+
+document.getElementById('loadScale').onclick = () => {
+  const txt = document.getElementById('sclEditor').value;
+  const arr = txt.split(',').map(x=>parseFloat(x.trim())).filter(x=>!isNaN(x));
+  if(arr.length>1){ scl=arr; addScale('Custom', arr); alert('Scale loaded'); }
+};
+
+document.getElementById('uploadScl').onchange = e => {
+  const file = e.target.files[0];
+  if(!file)return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const lines = reader.result.split(/\r?\n/).filter(l=>!l.startsWith('!') && l.trim());
+    const cnt = parseInt(lines[1]);
+    const cents = lines.slice(2,2+cnt).map(l=> l.includes('.')? parseFloat(l): 1200*Math.log2(parseInt(l)/parseInt(lines[2].split('/')[1])) );
+    scl = [0, ...cents];
+    addScale(file.name, scl);
+    document.getElementById('sclEditor').value = scl.join(',');
+    alert(`Loaded ${file.name}`);
+  };
+  reader.readAsText(file);
+};
+
+function addScale(name, arr) {
+  scaleNames[name] = arr;
+  const sel = document.getElementById('scaleSelect');
+  sel.options.length=0;
+  for(const key in scaleNames){
+    sel.add(new Option(key, key));
+  }
+}
+
+document.getElementById('scaleSelect').onchange = e => {
+  scl = scaleNames[e.target.value];
+  document.getElementById('sclEditor').value = scl.join(',');
+};
+
+document.getElementById('playRandom').onclick=playNote;
+document.getElementById('startMic').onclick=startMic;
+
+let practiceActive=false;
+document.getElementById('startPractice').onclick = () => {
+  practiceActive=true;
+  history.length=0;
+  document.getElementById('practice').style.display='block';
+  nextPractice();
+};
+document.getElementById('stopPractice').onclick = () => {
+  practiceActive=false;
+  const avg = history.reduce((a,b)=>a+b,0)/history.length || 0;
+  document.getElementById('practiceInfo').innerText = `Done! ${history.length} rounds. Avg |cents| = ${avg.toFixed(2)}`;
+};
+
+function nextPractice(){
+  if(!practiceActive) return;
+  playNote();
+  const start = performance.now();
+  const collect = setInterval(()=>{
+    // measure once near immediately after start
+    clearInterval(collect);
+    const off = Math.abs(parseFloat(document.getElementById('pitchInfo').innerText.split('|')[1]));
+    history.push(off);
+    nextPractice();
+  },1200);
+}
+</script>
 </body>
 </html>
