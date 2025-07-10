@@ -42,6 +42,10 @@
 <body>
   <h1>Microtonal Pitch Trainer</h1>
 
+  <label>Upload .scl file:
+    <input type="file" id="uploadScl" accept=".scl">
+  </label>
+
   <textarea id="sclEditor" rows="3">0,100,200,300,400,500,600,700,800,900,1000,1100</textarea>
   <button onclick="loadScale()">Load Scale</button>
 
@@ -57,9 +61,35 @@
     let osc = null;
     let micActive = false;
     let selectedFreq = 440;
-    let scl = [0, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000, 1100];
+    let scl = [];
+
     const canvas = document.getElementById("needle");
     const ctx = canvas.getContext("2d");
+
+    function drawNeedle(cents) {
+      const w = canvas.width = canvas.clientWidth;
+      const h = canvas.height = canvas.clientHeight;
+      const mid = w / 2;
+      ctx.clearRect(0, 0, w, h);
+
+      // Center line
+      ctx.strokeStyle = "#888";
+      ctx.beginPath();
+      ctx.moveTo(mid, 0);
+      ctx.lineTo(mid, h);
+      ctx.stroke();
+
+      if (typeof cents !== "number") return;
+
+      const maxCents = 50;
+      const pos = mid + (cents / maxCents) * (w / 2);
+      ctx.strokeStyle = Math.abs(cents) < 5 ? "#0f0" : "#f00";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(pos, 0);
+      ctx.lineTo(pos, h);
+      ctx.stroke();
+    }
 
     function loadScale() {
       const text = document.getElementById("sclEditor").value;
@@ -81,7 +111,9 @@
 
     document.getElementById("noteSelector").addEventListener("change", e => {
       selectedFreq = parseFloat(e.target.value);
-      if (osc) osc.frequency.setValueAtTime(selectedFreq, audioCtx.currentTime);
+      if (osc) {
+        osc.frequency.setValueAtTime(selectedFreq, audioCtx.currentTime);
+      }
     });
 
     function toggleTone() {
@@ -89,9 +121,10 @@
         osc.stop();
         osc = null;
       } else {
+        selectedFreq = parseFloat(document.getElementById("noteSelector").value);
         osc = audioCtx.createOscillator();
         osc.type = "sine";
-        osc.frequency.value = parseFloat(document.getElementById("noteSelector").value);
+        osc.frequency.value = selectedFreq;
         osc.connect(audioCtx.destination);
         osc.start();
       }
@@ -126,52 +159,55 @@
       detect();
     }
 
-    function drawNeedle(cents) {
-      const w = canvas.width = canvas.clientWidth;
-      const h = canvas.height = canvas.clientHeight;
-      ctx.clearRect(0, 0, w, h);
-      const mid = w / 2;
-      const range = 50;
-      ctx.strokeStyle = "#888";
-      ctx.beginPath();
-      ctx.moveTo(mid, 0);
-      ctx.lineTo(mid, h);
-      ctx.stroke();
-
-      if (cents === null) return;
-
-      const pos = mid + (cents / range) * (w / 2);
-      ctx.strokeStyle = Math.abs(cents) < 5 ? "#0f0" : "#f00";
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(pos, 0);
-      ctx.lineTo(pos, h);
-      ctx.stroke();
-    }
-
     function autoCorrelate(buf, sampleRate) {
-      let SIZE = buf.length;
+      const SIZE = buf.length;
       let rms = 0;
       for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
       rms = Math.sqrt(rms / SIZE);
       if (rms < 0.01) return null;
 
-      let bestOffset = -1, bestCorr = 0;
+      let bestOffset = -1;
+      let bestCorr = 0;
       for (let offset = 20; offset < 1000; offset++) {
         let corr = 0;
         for (let i = 0; i < SIZE - offset; i++) {
           corr += buf[i] * buf[i + offset];
         }
-        corr /= (SIZE - offset);
+        corr /= SIZE - offset;
         if (corr > bestCorr) {
           bestCorr = corr;
           bestOffset = offset;
         }
       }
-
       return bestCorr > 0.9 ? sampleRate / bestOffset : null;
     }
 
+    document.getElementById("uploadScl").addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const lines = reader.result.split(/\r?\n/).map(line => line.trim());
+        const clean = lines.filter(line => line && !line.startsWith("!"));
+        const count = parseInt(clean[1]);
+        const data = clean.slice(2, 2 + count);
+        const cents = data.map(line => {
+          if (line.includes('/')) {
+            const [num, den] = line.split('/').map(Number);
+            return 1200 * Math.log2(num / den);
+          } else {
+            return parseFloat(line);
+          }
+        });
+        scl = [0, ...cents];
+        document.getElementById("sclEditor").value = scl.join(',');
+        populateNoteSelector();
+        alert(`Loaded ${file.name}`);
+      };
+      reader.readAsText(file);
+    });
+
+    // Initial load
     loadScale();
   </script>
 </body>
