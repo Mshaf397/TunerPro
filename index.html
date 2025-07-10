@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Microtonal Pitch Trainer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <h1>Microtonal Pitch Trainer</h1>
+
+  <div>
+    <label>Base Frequency (Hz):
+      <input type="number" id="baseFreq" value="440">
+    </label>
+    <label>EDO:
+      <input type="number" id="edo" value="12" min="1" max="80">
+    </label>
+    <button onclick="playRandomNote()">Play Note</button>
+  </div>
+
+  <div id="noteInfo"></div>
+
+  <button onclick="startListening()">Start Mic</button>
+  <div id="pitchOutput">Pitch: -- Hz<br>Cents Off: --</div>
+
+  <script src="script.js"></script>
+</body>
+</html>
