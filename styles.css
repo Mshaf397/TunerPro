@@ -1,0 +1,21 @@
+body {
+  font-family: sans-serif;
+  background: #111;
+  color: #eee;
+  text-align: center;
+  padding: 20px;
+}
+input, button {
+  margin: 5px;
+  padding: 8px;
+  font-size: 1em;
+}
+button {
+  background: #444;
+  color: white;
+  border: none;
+  cursor: pointer;
+}
+button:hover {
+  background: #666;
+}
